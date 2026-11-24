@@ -1,0 +1,111 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tiny-voca M2 — male voice</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  button, textarea { font: inherit; padding: .3rem .5rem; max-width: 100%; box-sizing: border-box; }
+  textarea { width: 100%; }
+  pre { white-space: pre-wrap; background: #8881; padding: .75rem; border-radius: .4rem; font-size: 13px; }
+  .voice-tag { display: inline-block; background: #e8f0fe; border-radius: 1rem; padding: .2rem .8rem; font-size: 14px; }
+</style>
+
+<h1>tiny-voca M2 — male voice</h1>
+<p>Clone of <a href="https://github.com/n4ze3m/tiny-voca">n4ze3m/tiny-voca</a>, locked to the <b>M2</b> male voice. Runs 100% in your browser (~8 MB model).</p>
+<p>
+  <textarea id="typing" rows="4" cols="50">The weather is nice today, and I feel very relaxed.</textarea>
+</p>
+<p>
+  <span class="voice-tag">Voice: M2 (male)</span>
+  <button id="play">Play</button>
+  <a id="save" download="tiny-voca-m2.wav" hidden>Save as WAV</a>
+</p>
+<pre id="log">Loading...</pre>
+
+<script type="module">
+const query = new URLSearchParams(location.search);
+const { readGGUF, TinyVoca } = await import(query.get("script") || "./tiny-voca.js");
+const { fromGGUF } = await import("./dizione/engine.js");
+const { utterancesOf, limited, wav } = await import("./text.js");
+const url = query.get("file") || "https://huggingface.co/n4ze3m/tiny-voca/resolve/main/gguf/tiny-voca-js.gguf";
+const VOICE = "M2"; // locked: male voice only
+const $ = (id) => document.getElementById(id);
+const typing = $("typing");
+const log = (text) => { $("log").textContent = text; };
+const paint = () => new Promise((done) => setTimeout(done, 20));
+
+let voca, phonemizer, ready;
+async function load() {
+  if (voca) return;
+  log(`Downloading ${url}`);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`${url}: ${response.status}`);
+  const buffer = await response.arrayBuffer();
+  const downloaded = performance.now();
+  log("Reading the file...");
+  await paint();
+  const file = readGGUF(buffer);
+  voca = new TinyVoca(file);
+  phonemizer = await fromGGUF(file);
+  ready = `${(buffer.byteLength / 1e6).toFixed(2)} MB. Ready ${((performance.now() - downloaded)).toFixed(0)} ms after the download.`;
+  log(ready);
+}
+
+let context, sources = [], run = 0;
+$("play").onclick = async () => {
+  context ||= new AudioContext();
+  const mine = ++run;
+  sources.forEach((source) => source.stop());
+  sources = [];
+  $("save").hidden = true;
+  await load();
+  if (mine !== run) return;
+  let utterances;
+  try {
+    utterances = utterancesOf(typing.value, phonemizer, voca.config.max_tokens - 12);
+  } catch (error) {
+    log(`${ready}\n${error.message}`);
+    return;
+  }
+  if (!utterances.length) { log(`${ready}\ntiny-voca only reads English for now.`); return; }
+  log(`${ready}\nSpeaking with ${VOICE}...`);
+  await paint();
+  const rate = voca.config.sample_rate, chunks = [], lines = [];
+  let next = 0, work = 0;
+  for (const [seed, { ids, stress, phonemes }] of utterances.entries()) {
+    const started = performance.now();
+    let audio;
+    try {
+      ({ audio } = voca.synthesize(ids, stress, { voice: VOICE, seed }));
+    } catch (error) {
+      log(`${ready}\n${error.message}`);
+      return;
+    }
+    work += (performance.now() - started) / 1000;
+    if (mine !== run) return;
+    chunks.push(audio);
+    const heard = limited(audio), sound = context.createBuffer(1, heard.length, rate), source = context.createBufferSource();
+    sound.copyToChannel(heard, 0);
+    source.buffer = sound;
+    source.connect(context.destination);
+    next = Math.max(next, context.currentTime + 0.05);
+    source.start(next);
+    next += heard.length / rate;
+    sources.push(source);
+    lines.push(phonemes);
+    log(`${ready}\nSentence ${seed + 1} of ${utterances.length}\n\n${lines.join("\n")}`);
+    await paint();
+    if (mine !== run) return;
+  }
+  const whole = new Float32Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  chunks.reduce((at, chunk) => (whole.set(chunk, at), at + chunk.length), 0);
+  URL.revokeObjectURL($("save").href);
+  $("save").href = URL.createObjectURL(new Blob([wav(limited(whole), rate)], { type: "audio/wav" }));
+  $("save").hidden = false;
+  const seconds = whole.length / rate;
+  log(`${ready}\n${seconds.toFixed(2)} s of audio made in ${work.toFixed(2)} s: ${(seconds / work).toFixed(1)} times real time.` +
+      `\n\n${lines.join("\n")}`);
+};
+
+await load();
+</script>
