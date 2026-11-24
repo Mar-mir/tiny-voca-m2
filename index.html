@@ -3,24 +3,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tiny-voca M2 — male voice</title>
 <style>
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
-  button, textarea { font: inherit; padding: .3rem .5rem; max-width: 100%; box-sizing: border-box; }
-  textarea { width: 100%; }
-  pre { white-space: pre-wrap; background: #8881; padding: .75rem; border-radius: .4rem; font-size: 13px; }
-  .voice-tag { display: inline-block; background: #e8f0fe; border-radius: 1rem; padding: .2rem .8rem; font-size: 14px; }
+  :root { --bg: #171425; --card: #211d33; --ink: #ece7f7; --muted: #a89fc7; --accent: #f0b45a; --accent-ink: #241503; --line: #38315a; }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.6 system-ui, sans-serif; margin: 0; min-height: 100vh; color: var(--ink);
+    background: radial-gradient(1200px 600px at 80% -10%, #322a5e 0%, transparent 60%), radial-gradient(900px 500px at 10% 110%, #4a2b4d 0%, transparent 55%), var(--bg); }
+  main { max-width: 44rem; margin: 0 auto; padding: 3rem 1rem 4rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 1rem; padding: 1.5rem; box-shadow: 0 20px 60px #0008; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  h1 .m2 { color: var(--accent); }
+  p.sub { color: var(--muted); margin: 0 0 1rem; font-size: 14px; }
+  p.sub a { color: var(--accent); }
+  textarea { width: 100%; font: inherit; color: var(--ink); background: #141122; border: 1px solid var(--line); border-radius: .6rem; padding: .7rem .8rem; resize: vertical; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem .8rem; align-items: center; margin-top: 1rem; }
+  .voice-tag { display: inline-block; background: #332c5c; border: 1px solid var(--line); border-radius: 1rem; padding: .25rem .8rem; font-size: 14px; }
+  button { font: inherit; font-weight: 700; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: .6rem; padding: .45rem 1.3rem; cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  a#save { color: var(--accent); font-size: 14px; }
+  .speed { display: flex; align-items: center; gap: .6rem; font-size: 14px; color: var(--muted); }
+  .speed output { color: var(--ink); font-variant-numeric: tabular-nums; min-width: 3.2em; }
+  input[type="range"] { accent-color: var(--accent); width: 10rem; }
+  pre { white-space: pre-wrap; background: #141122; border: 1px solid var(--line); padding: .75rem; border-radius: .6rem; font-size: 13px; color: var(--muted); }
 </style>
 
-<h1>tiny-voca M2 — male voice</h1>
-<p>Clone of <a href="https://github.com/n4ze3m/tiny-voca">n4ze3m/tiny-voca</a>, locked to the <b>M2</b> male voice. Runs 100% in your browser (~8 MB model).</p>
+<main>
+<div class="card">
+<h1>tiny-voca <span class="m2">M2</span> — male voice</h1>
+<p class="sub">Clone of <a href="https://github.com/n4ze3m/tiny-voca">n4ze3m/tiny-voca</a>, locked to the <b>M2</b> male voice. Runs 100% in your browser (~8 MB model).</p>
 <p>
   <textarea id="typing" rows="4" cols="50">The weather is nice today, and I feel very relaxed.</textarea>
 </p>
-<p>
+<div class="row">
   <span class="voice-tag">Voice: M2 (male)</span>
+  <label class="speed">Speed <input id="speed" type="range" min="0.5" max="1.5" step="0.05" value="1"> <output id="speedval">1.00&times;</output></label>
   <button id="play">Play</button>
   <a id="save" download="tiny-voca-m2.wav" hidden>Save as WAV</a>
-</p>
+</div>
+</div>
 <pre id="log">Loading...</pre>
+</main>
 
 <script type="module">
 const query = new URLSearchParams(location.search);
@@ -31,6 +53,9 @@ const url = query.get("file") || "https://huggingface.co/n4ze3m/tiny-voca/resolv
 const VOICE = "M2"; // locked: male voice only
 const $ = (id) => document.getElementById(id);
 const typing = $("typing");
+const speedEl = $("speed"), speedVal = $("speedval");
+const speed = () => Math.min(1.5, Math.max(0.5, parseFloat(speedEl.value) || 1));
+speedEl.oninput = () => { speedVal.textContent = `${speed().toFixed(2)}×`; };
 const log = (text) => { $("log").textContent = text; };
 const paint = () => new Promise((done) => setTimeout(done, 20));
 
@@ -68,15 +93,15 @@ $("play").onclick = async () => {
     return;
   }
   if (!utterances.length) { log(`${ready}\ntiny-voca only reads English for now.`); return; }
-  log(`${ready}\nSpeaking with ${VOICE}...`);
+  log(`${ready}\nSpeaking with ${VOICE} at ${speed().toFixed(2)}×...`);
   await paint();
-  const rate = voca.config.sample_rate, chunks = [], lines = [];
+  const rate = voca.config.sample_rate, chunks = [], lines = [], sp = speed();
   let next = 0, work = 0;
   for (const [seed, { ids, stress, phonemes }] of utterances.entries()) {
     const started = performance.now();
     let audio;
     try {
-      ({ audio } = voca.synthesize(ids, stress, { voice: VOICE, seed }));
+      ({ audio } = voca.synthesize(ids, stress, { voice: VOICE, seed, speed: sp }));
     } catch (error) {
       log(`${ready}\n${error.message}`);
       return;
@@ -93,7 +118,7 @@ $("play").onclick = async () => {
     next += heard.length / rate;
     sources.push(source);
     lines.push(phonemes);
-    log(`${ready}\nSentence ${seed + 1} of ${utterances.length}\n\n${lines.join("\n")}`);
+    log(`${ready}\nSentence ${seed + 1} of ${utterances.length} (${sp.toFixed(2)}×)\n\n${lines.join("\n")}`);
     await paint();
     if (mine !== run) return;
   }
