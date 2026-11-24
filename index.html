@@ -49,7 +49,8 @@ const query = new URLSearchParams(location.search);
 const { readGGUF, TinyVoca } = await import(query.get("script") || "./tiny-voca.js");
 const { fromGGUF } = await import("./dizione/engine.js");
 const { utterancesOf, limited, wav } = await import("./text.js");
-const url = query.get("file") || "https://huggingface.co/n4ze3m/tiny-voca/resolve/main/gguf/tiny-voca-js.gguf";
+const HF = "https://huggingface.co/n4ze3m/tiny-voca/resolve/main/gguf/tiny-voca-js.gguf";
+const url = query.get("file") || HF;
 const VOICE = "M2"; // locked: male voice only
 const $ = (id) => document.getElementById(id);
 const typing = $("typing");
@@ -60,12 +61,19 @@ const log = (text) => { $("log").textContent = text; };
 const paint = () => new Promise((done) => setTimeout(done, 20));
 
 let voca, phonemizer, ready;
-async function load() {
-  if (voca) return;
+async function loadBytes() {
+  try { // local copy: bundled in the windows app, or repo mirror on web
+    const local = await fetch("./model/tiny-voca-js.gguf");
+    if (local.ok) return await local.arrayBuffer();
+  } catch {}
   log(`Downloading ${url}`);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
-  const buffer = await response.arrayBuffer();
+  return await response.arrayBuffer();
+}
+async function load() {
+  if (voca) return;
+  const buffer = await loadBytes();
   const downloaded = performance.now();
   log("Reading the file...");
   await paint();
